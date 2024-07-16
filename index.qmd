@@ -1,0 +1,471 @@
+---
+title: "2021 Global Tuberculosis Dashboard"
+author: "Alimatou Héma"
+format: 
+  dashboard:
+    logo: 2019-cde-world-tb-day-logo-wp-en0.png
+    nav-buttons: [github]
+    github: https://github.com/ahema-88
+theme: lux
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+
+```{r}
+# Load packages 
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(tidyverse, here, sf, bslib, shiny, shinydashboard, bsicons, rnaturalearth, plotly, countrycode, htmltools, reactable, janitor)
+
+
+```
+
+
+
+```{r}
+# Load TB datasets
+library(readxl)
+tb_treatement <- read_excel("tb_data.xls")
+tb_total_cases <- read_excel("tb_total_cases.xls")
+
+# Transform TB treatment data
+tb_treatement_long <- tb_treatement %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "treatment_succesed") %>%
+  select(`Country Name`, `Country Code`, year, treatment_succesed)
+
+# Transform TB total cases data
+tb_total_cases_long <- tb_total_cases %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "total_cases") %>%
+  select(`Country Name`, `Country Code`, year, total_cases)
+
+# Join TB datasets
+tb_combined <- left_join(tb_total_cases_long, tb_treatement_long, by = c("Country Name", "year", "Country Code"))
+
+```
+
+
+```{r}
+# Load world countries data
+countries <- ne_countries(returnclass = "sf")
+
+```
+
+
+```{r}
+# Ensure proper country code mapping
+tb_combined <- tb_combined %>%
+  mutate(country_iso = countrycode(`Country Name`, "country.name", "iso3c"))
+
+```
+
+```{r}
+# Merge TB data with world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+tb_world <- left_join(tb_combined, world, by = c("country_iso" = "iso_a3"))
+
+```
+
+
+```{r}
+# Calculate treatment success rate for 2021
+tb_combined_2021 <- tb_world %>%
+  filter(year == 2021 & !is.na(total_cases) & !is.na(treatment_succesed))
+
+average_treatment_success_rate_2021 <- mean(tb_combined_2021$treatment_succesed / tb_combined_2021$total_cases) * 100
+
+```
+
+```{r}
+# Prepare data for visualization
+plot_data <- tb_combined_2021 %>%
+  filter(!is.na(treatment_succesed)) %>%
+  group_by(`Country Name`) %>%
+  summarize(total_treatment_succesed = sum(treatment_succesed, na.rm = TRUE)) %>%
+  arrange(desc(total_treatment_succesed))
+
+data_plot_treatment_2021 <- plot_data %>%
+  head(30) %>%
+  mutate(`Country Name` = fct_reorder(`Country Name`, total_treatment_succesed, .desc = TRUE))
+
+# Plot TB treatment success for 2021
+plot_treatment_2021 <- ggplot(data_plot_treatment_2021, aes(x = total_treatment_succesed, y = `Country Name`, fill = `Country Name`)) +
+  geom_col() +
+  labs(title = "Top 30 Countries by TB Treatment Succeeded in 2021", x = "Total Treatment Succeeded", y = "Country") +
+  theme(legend.position = "none")
+
+plotly_treatment_2021 <- ggplotly(plot_treatment_2021)
+
+```
+
+
+
+
+```{r}
+# Load and prepare TB treatment success rate data
+tb_combined <- read_excel("tb_data.xls") %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "treatment_succesed") %>%
+  select(`Country Name`, `Country Code`, year, treatment_succesed) %>%
+  mutate(country_iso = countrycode(`Country Name`, "country.name", "iso3c"))
+
+# Filter for the year 2022
+tb_combined_2021 <- tb_combined %>%
+  filter(year == "2021")
+
+# Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Check for missing ISO codes
+missing_iso <- tb_combined_2021 %>%
+  filter(is.na(country_iso)) %>%
+  select(`Country Name`) %>%
+  unique()
+
+#if (nrow(missing_iso) > 0) {
+ # print("Countries with missing ISO codes:")
+ # print(missing_iso)
+#}
+
+# Merge TB data with world map data
+tb_world <- world %>%
+  left_join(tb_combined_2021, by = c("iso_a3" = "country_iso"))
+
+#tb_world %>% as_tibble()
+
+# Check for missing geometries
+#if (!("geometry" %in% colnames(tb_world))) {
+ # stop("Geometry column is missing in the merged data")
+#}
+
+# Plot using ggplot2
+tb_map_plot <- ggplot(data = tb_world) +
+  geom_sf(aes(fill = treatment_succesed)) +
+  labs(title = "Global Tuberculosis Treatment Success by Country (2021)",
+       fill = "Treatment Success") +
+  theme_minimal()
+
+# Convert to Plotly
+tb_map_plotly <- ggplotly(tb_map_plot)
+#tb_map_plotly
+
+```
+
+
+```{r}
+
+# Load and prepare TB total cases data
+tb_total_cases <- read_excel("tb_total_cases.xls") %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "total_cases") %>%
+  select(`Country Name`, `Country Code`, year, total_cases) %>%
+  mutate(country_iso = countrycode(`Country Name`, "country.name", "iso3c"))
+
+# Filter for the year 2022
+tb_total_cases_2021 <- tb_total_cases %>%
+  filter(year == "2021")
+
+# Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Check for missing ISO codes
+missing_iso <- tb_total_cases_2021 %>%
+  filter(is.na(country_iso)) %>%
+  select(`Country Name`) %>%
+  unique()
+
+# if (nrow(missing_iso) > 0) {
+ # print("Countries with missing ISO codes:")
+ # print(missing_iso)
+# }
+
+# Merge TB data with world map data
+tb_world <- world %>%
+  left_join(tb_total_cases_2021, by = c("iso_a3" = "country_iso"))
+
+# Check for missing geometries
+#if (!("geometry" %in% colnames(tb_world))) {
+#  stop("Geometry column is missing in the merged data")
+#}
+
+# Prepare data for Plotly with tooltips
+tb_world <- tb_world %>%
+  mutate(text = paste("Country: ", name, "<br>Total Cases: ", total_cases))
+
+# Plot using ggplot2 with enhanced color scale
+tb_map_cases_plot <- ggplot(data = tb_world) +
+  geom_sf(aes(fill = total_cases, text = text)) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey80") +
+  labs(title = "Global Tuberculosis Total Cases by Country (2022)",
+       fill = "Total Cases") +
+  theme_minimal()
+
+# Convert to Plotly
+tb_map_cases_plotly <- ggplotly(tb_map_plot, tooltip = "text")
+# tb_map_plotly
+
+```
+
+
+```{r}
+# Load and prepare TB treatment success rate data
+tb_combined <- read_excel("tb_data.xls") %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "treatment_succesed") %>%
+  select(`Country Name`, `Country Code`, year, treatment_succesed) %>%
+  mutate(country_iso = countrycode(`Country Name`, "country.name", "iso3c"))
+
+# Filter for the year 2022
+tb_combined_2021 <- tb_combined %>%
+  filter(year == "2021")
+
+# Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Check for missing ISO codes
+missing_iso <- tb_combined_2021 %>%
+  filter(is.na(country_iso)) %>%
+  select(`Country Name`) %>%
+  unique()
+
+#if (nrow(missing_iso) > 0) {
+ # print("Countries with missing ISO codes:")
+ # print(missing_iso)
+#}
+
+# Merge TB data with world map data
+tb_world <- world %>%
+  left_join(tb_combined_2021, by = c("iso_a3" = "country_iso"))
+
+#tb_world %>% as_tibble()
+
+# Check for missing geometries
+#if (!("geometry" %in% colnames(tb_world))) {
+ # stop("Geometry column is missing in the merged data")
+#}
+
+# Plot using ggplot2
+tb_map_plot <- ggplot(data = tb_world) +
+  geom_sf(aes(fill = treatment_succesed)) +
+  labs(title = "Global Tuberculosis Treatment Success by Country (2021)",
+       fill = "Treatment Success") +
+  theme_minimal()
+
+# Convert to Plotly
+tb_cases_map_plotly <- ggplotly(tb_map_plot)
+#tb_map_plotly
+
+```
+
+```{r}
+
+# Load and prepare TB total cases data
+tb_total_cases <- read_excel("tb_total_cases.xls") %>%
+  pivot_longer(cols = starts_with("20"), names_to = "year", values_to = "total_cases") %>%
+  select(`Country Name`, `Country Code`, year, total_cases) %>%
+  mutate(country_iso = countrycode(`Country Name`, "country.name", "iso3c"))
+
+# Filter for the year 2022
+tb_total_cases_2021 <- tb_total_cases %>%
+  filter(year == "2021")
+
+# Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Check for missing ISO codes
+missing_iso <- tb_total_cases_2021 %>%
+  filter(is.na(country_iso)) %>%
+  select(`Country Name`) %>%
+  unique()
+
+# if (nrow(missing_iso) > 0) {
+ # print("Countries with missing ISO codes:")
+ # print(missing_iso)
+# }
+
+# Merge TB data with world map data
+tb_world <- world %>%
+  left_join(tb_total_cases_2021, by = c("iso_a3" = "country_iso"))
+
+# Check for missing geometries
+#if (!("geometry" %in% colnames(tb_world))) {
+#  stop("Geometry column is missing in the merged data")
+#}
+
+# Prepare data for Plotly with tooltips
+tb_world <- tb_world %>%
+  mutate(text = paste("Country: ", name, "<br>Total Cases: ", total_cases))
+
+# Plot using ggplot2 with enhanced color scale
+tb_cases_map_plot <- ggplot(data = tb_world) +
+  geom_sf(aes(fill = total_cases)) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey80") +
+  labs(title = "Global Tuberculosis Total Cases by Country (2021)",
+       fill = "Total Cases") +
+  theme_minimal()
+
+# Convert to Plotly
+tb_cases_map_plotly <- ggplotly(tb_cases_map_plot)
+
+```
+
+
+```{r}
+  
+# Calculate total cases in 2021
+total_cases_2021 <- mean(tb_total_cases_2021$total_cases, na.rm = TRUE)
+
+total_cases_2021 <- round(total_cases_2021, 2)
+
+# Calculate average treatment success rate in 2021
+average_treatment_success_rate_2021 <- mean(tb_combined_2021$treatment_succesed, na.rm = TRUE)
+average_treatment_success_rate_2021 <- round(average_treatment_success_rate_2021, 2)
+
+# Calculate percentage of countries with 100% treatment success rate
+percentage_100_success <- mean(tb_combined_2021$treatment_succesed == 100, na.rm = TRUE) * 100
+
+percentage_100_success <- round(percentage_100_success, 2)  # Round to two decimal places
+
+# percentage_100_success
+
+```
+
+
+```{r}
+library(reactable)
+
+# Assuming tb_total_cases and tb_combined are your data frames
+
+# Join the data for total cases and treatment
+tb_cases_treatment <- left_join(tb_total_cases, tb_combined,
+                                by = c("Country Name", "year", "Country Code"))
+
+# Create a sample data frame for demonstration
+sample_data <- tb_cases_treatment %>%
+  filter(year == 2021) %>%
+  select(`Country Name`, total_cases, treatment_succesed)
+
+# Filter data for year 2021 and non-NA values for treatment_succesed and total_cases
+tb_combined_2021 <- tb_cases_treatment %>%
+  filter(year == "2021" & !is.na(treatment_succesed) & !is.na(total_cases))
+
+# Estimate the result in percentage
+estimated_percentage_success <- mean(tb_combined_2021$treatment_succesed == 100, na.rm = TRUE) * 100
+
+
+# Calculate percentage of countries with 100% treatment success rate
+estimated_80_success <- mean(tb_combined_2021$treatment_succesed >= 80, na.rm = TRUE) * 100
+
+estimated_80_success <- round(estimated_80_success, 2)
+
+# calculate the country with the highest TB cases 
+tb_combined_2021 <- tb_combined_2021 %>%
+  mutate(total_cases_2021 = as.numeric(total_cases_2021))
+
+highest_tb_cases_country <- tb_combined_2021 %>% 
+  arrange(-total_cases_2021) %>% 
+  head(1) %>% 
+  select(`Country Name`, total_cases_2021)
+
+
+# Print the country with the highest TB cases
+
+# Print the estimated percentage
+#print(paste("Estimated Treatment Success Rate in 2021:", round(estimated_percentage_success, 1), "%"))
+
+#print(paste("Estimated Treatment Success 80% in 2021:", round(estimated_80_success, 1), "%"))
+
+# Create the interactive table
+#reactable(tb_combined_2021, searchable = TRUE, pagination = TRUE, striped = TRUE)
+
+tb_table <- reactable(tb_combined_2021)
+```
+
+# HOME
+
+
+## Row 1 {height="25%"}
+
+
+```{r}
+
+# The country with the highest TB cases
+
+# Create the value box
+value_box(
+  title = "Highest TB cases",
+  value = highest_tb_cases_country,
+  showcase = bsicons::bs_icon("graph-up"),
+  theme = value_box_theme(bg = "#e11e20"),  footer = paste0("Country: ", highest_tb_cases_country))
+  
+```
+
+
+```{r}
+
+value_box(
+  title = "Average of Treatments Succeeded in 2021",
+  value = average_treatment_success_rate_2021,
+  showcase = bsicons::bs_icon("activity"),
+  theme = value_box_theme(bg = "#529fe9"),
+  p(paste0("(", average_treatment_success_rate_2021, ")"))
+)
+```
+
+```{r}
+# Display the value box
+
+value_box(
+  title = "Average of 100% Treatments Succeeded",
+  value = paste(percentage_100_success, "%"),
+  showcase = bsicons::bs_icon("heart"),
+  theme = value_box_theme(bg = "#45f542"),
+  p(paste0("(", percentage_100_success, ")"))
+)
+```
+
+
+## Row 2 {height="75%"}
+
+###  {width="70%"}
+
+```{r}
+tb_cases_map_plotly
+```
+
+###  {width="30%"}
+
+```{r}
+
+plotly_treatment_2021
+```
+
+# DOWNLOAD DATA
+The data used in this dashboard is shown below and can be downloaded as a CSV. 
+
+
+```{r}
+
+# Save Interactive Plots as HTML
+
+# Save interactive plots as HTML
+htmlwidgets::saveWidget(plotly_treatment_2021, "plotly_treatment_2021.html")
+htmlwidgets::saveWidget(tb_cases_map_plotly, "tb_cases_map_plotly.html")
+
+# Provide download button for data table
+htmltools::browsable(
+  tagList(
+    reactable(tb_combined_2021, elementId = "tb_table", searchable = TRUE, filterable = TRUE),
+    tags$button("Download as CSV", onclick = "Reactable.downloadDataCSV('tb_table-table')")
+  )
+)
+```
+
+# ABOUT 
+
+This dashboard provides an overview of tuberculosis (TB) treatment success and total cases globally in 2021.
+Below is a video in TB burden :
+
+<iframe width="560" height="315" src = "https://www.youtube.com/embed/06zKkhyeGCk" frameborder="0" allowfullscreen></iframe>
+
+
+
+
